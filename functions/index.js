@@ -2,11 +2,19 @@ const { onRequest } = require('firebase-functions/v2/https');
 const fetch = require('node-fetch');
 const { Configuration, OpenAIApi } = require('openai');
 const { Octokit } = require('@octokit/rest');
+require('dotenv').config();
+
+const openaiKey = process.env.OPENAI_KEY;
+const githubKey = process.env.GITHUB_KEY;
 
 const configuration = new Configuration({
-  apiKey: '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',
+  apiKey: openaiKey,
 });
 const openai = new OpenAIApi(configuration);
+
+const octokit = new Octokit({
+  auth: githubKey,
+});
 
 exports.getUser = onRequest(async (request, response) => {
   const { token } = request.query;
@@ -67,31 +75,57 @@ exports.getStarredRepos = onRequest(async (request, response) => {
 
 exports.githubWebhook = onRequest(async (request, response) => {
   const { body } = request;
-  const issueDetails = body.issue.body;
-  const issueNumber = body.issue.number;
 
-  const chat_completion = await openai.createCompletion({
-    model: 'text-davinci-003',
-    prompt: issueDetails,
-  });
+  const isIssueEvent = body.issue !== undefined;
+  const isPullRequestEvent = body.pull_request !== undefined;
 
-  const resultText = chat_completion.data.choices[0].text;
+  if (isIssueEvent) {
+    const issueDetails = body.issue.body;
+    const issueNumber = body.issue.number;
 
-  const octokit = new Octokit({
-    auth: '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',
-  });
+    const chat_completion = await openai.createCompletion({
+      model: 'text-davinci-003',
+      prompt: issueDetails,
+    });
 
-  if (body.sender.login !== 'React-Challenge-Bot1') {
-    try {
-      await octokit.issues.createComment({
-        owner: 'MohammadRRamis',
-        repo: 'ReactChallenge',
-        issue_number: issueNumber,
-        body: resultText,
-      });
-    } catch (error) {
-      console.log(error);
+    const resultText = chat_completion.data.choices[0].text;
+
+    if (body.sender.login !== 'React-Challenge-Bot1') {
+      try {
+        await octokit.issues.createComment({
+          owner: 'MohammadRRamis',
+          repo: 'ReactChallenge',
+          issue_number: issueNumber,
+          body: resultText,
+        });
+      } catch (error) {
+        console.log(error);
+      }
+    }
+  } else if (isPullRequestEvent) {
+    const pullRequestDetails = body.pull_request.body;
+    const pullRequestNumber = body.pull_request.number;
+
+    const chat_completion = await openai.createCompletion({
+      model: 'text-davinci-003',
+      prompt: pullRequestDetails,
+    });
+
+    const resultText = chat_completion.data.choices[0].text;
+
+    if (body.sender.login !== 'React-Challenge-Bot1') {
+      try {
+        await octokit.pulls.createReview({
+          owner: 'MohammadRRamis',
+          repo: 'ReactChallenge',
+          pull_number: pullRequestNumber,
+          body: resultText,
+        });
+      } catch (error) {
+        console.log(error);
+      }
     }
   }
+
   response.status(200).json({ success: true });
 });
